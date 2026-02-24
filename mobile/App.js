@@ -1,6 +1,13 @@
 import React from 'react';
+import { Platform } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, View } from 'react-native';
+
+// Disable native screens on web — fixes static export crash
+if (Platform.OS === 'web') {
+  require('react-native-screens').enableScreens(false);
+}
+
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
