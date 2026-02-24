@@ -1,13 +1,13 @@
-# Runs daily at 9 PM ET (1 AM UTC) — after US market closes
-# Also runnable manually from GitHub Actions tab
-# Free: GitHub gives 2000 min/month, this uses ~5 min/day = 150 min/month
+# Runs Mon-Fri at 1 AM UTC (9 PM ET) after market close
+# Also runnable manually from Actions tab
+# Uses ~5-10 min per run, well within GitHub's free 2000 min/month
 
 name: Daily ML Pipeline
 
 on:
   schedule:
-    - cron: '0 1 * * 1-5'  # Mon-Fri at 1 AM UTC (9 PM ET)
-  workflow_dispatch:  # manual trigger button
+    - cron: '0 1 * * 1-5'
+  workflow_dispatch:
 
 jobs:
   ml-pipeline:
@@ -33,6 +33,7 @@ jobs:
       - name: Run ML Pipeline
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          FINNHUB_KEY: ${{ secrets.FINNHUB_KEY }}
         run: |
           cd ml-service
           python run_pipeline.py

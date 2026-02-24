@@ -1,10 +1,23 @@
 """
-Stock price fetcher — downloads from yfinance one at a time (avoids rate limits on CI).
+Stock price fetcher — uses Finnhub API (works on GitHub Actions, no blocks).
+Fetches daily candles and stores in Neon PostgreSQL.
 """
 
-import yfinance as yf
+import os
+import json
 import time
+import requests
+from datetime import datetime, timedelta
 from db import insert_daily_prices, get_row_count
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+FINNHUB_KEY = os.environ.get('FINNHUB_KEY', 'd6efr21r01qloir6eis0d6efr21r01qloir6eisg')
+BASE = 'https://finnhub.io/api/v1'
 
 TRACKED = [
     'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA',
@@ -18,56 +31,67 @@ TRACKED = [
 ]
 
 
-def _fetch_single(symbol, period='1y', retries=3):
-    """Fetch one stock with retries."""
-    for attempt in range(retries):
-        try:
-            df = yf.download(symbol, period=period, interval='1d', auto_adjust=True, progress=False)
-            if df is not None and not df.empty:
-                rows = []
-                for idx, row in df.iterrows():
-                    rows.append({
-                        'symbol': symbol,
-                        'date': idx.strftime('%Y-%m-%d'),
-                        'open': round(float(row.get('Open', 0)), 4),
-                        'high': round(float(row.get('High', 0)), 4),
-                        'low': round(float(row.get('Low', 0)), 4),
-                        'close': round(float(row.get('Close', 0)), 4),
-                        'volume': int(row.get('Volume', 0)),
-                    })
-                return rows
-        except Exception as e:
-            print(f'  [{symbol}] attempt {attempt+1} failed: {e}')
-            time.sleep(2)
-    return []
+def _fetch_candles(symbol, days=365):
+    """Fetch daily candles from Finnhub for a symbol."""
+    now = int(datetime.now().timestamp())
+    start = int((datetime.now() - timedelta(days=days)).timestamp())
+
+    url = f'{BASE}/stock/candle?symbol={symbol}&resolution=D&from={start}&to={now}&token={FINNHUB_KEY}'
+
+    try:
+        res = requests.get(url, timeout=10)
+        data = res.json()
+
+        if data.get('s') != 'ok' or 't' not in data:
+            return []
+
+        rows = []
+        for i in range(len(data['t'])):
+            date_str = datetime.fromtimestamp(data['t'][i]).strftime('%Y-%m-%d')
+            rows.append({
+                'symbol': symbol,
+                'date': date_str,
+                'open': round(data['o'][i], 4),
+                'high': round(data['h'][i], 4),
+                'low': round(data['l'][i], 4),
+                'close': round(data['c'][i], 4),
+                'volume': int(data['v'][i]),
+            })
+        return rows
+
+    except Exception as e:
+        print(f'  [{symbol}] error: {e}')
+        return []
 
 
-def fetch_and_store(period='1y'):
-    print(f'[fetcher] Fetching {len(TRACKED)} stocks one by one, period={period}...')
+def fetch_and_store(days=365):
+    print(f'[fetcher] Fetching {len(TRACKED)} stocks from Finnhub ({days} days)...')
     total = 0
     failed = []
 
     for i, sym in enumerate(TRACKED):
-        print(f'  ({i+1}/{len(TRACKED)}) {sym}...', end=' ')
-        rows = _fetch_single(sym, period)
+        print(f'  ({i+1}/{len(TRACKED)}) {sym}...', end=' ', flush=True)
+        rows = _fetch_candles(sym, days)
+
         if rows:
             inserted = insert_daily_prices(rows)
             total += inserted
-            print(f'{len(rows)} rows')
+            print(f'{len(rows)} days')
         else:
             failed.append(sym)
             print('FAILED')
-        # Small delay between stocks to avoid rate limiting
-        time.sleep(1)
 
-    print(f'[fetcher] Done. Inserted {total} rows. Total in DB: {get_row_count()}')
+        # Finnhub free tier: 60 calls/min — wait 1.1 sec between calls
+        time.sleep(1.1)
+
+    print(f'[fetcher] Done. {total} rows inserted. DB total: {get_row_count()}')
     if failed:
-        print(f'[fetcher] Failed stocks: {", ".join(failed)}')
+        print(f'[fetcher] Failed: {", ".join(failed)}')
     return total
 
 
 def backfill():
-    return fetch_and_store('1y')
+    return fetch_and_store(days=365)
 
 def fetch_latest():
-    return fetch_and_store('5d')
+    return fetch_and_store(days=7)
