@@ -1,0 +1,24 @@
+{
+  "expo": {
+    "name": "StockAI",
+    "slug": "stockai",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "scheme": "stockai",
+    "splash": { "backgroundColor": "#000000" },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.somya.stockai"
+    },
+    "android": {
+      "package": "com.somya.stockai"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}
