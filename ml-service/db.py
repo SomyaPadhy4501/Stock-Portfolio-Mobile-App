@@ -11,25 +11,28 @@ try:
 except ImportError:
     pass
 
-def _get_dsn():
-    """Build connection string. Neon gives you a full DATABASE_URL, or use individual vars."""
-    # Neon provides a single URL like: postgresql://user:pass@host/dbname?sslmode=require
+def get_conn():
     url = os.environ.get('DATABASE_URL')
     if url:
-        # Strip channel_binding param — psycopg2 doesn't support it
-        url = url.replace('&channel_binding=require', '').replace('?channel_binding=require&', '?')
-        return url
-    # Fallback to individual vars (local Docker)
-    return (
-        f"host={os.environ.get('DB_HOST', 'localhost')} "
-        f"port={os.environ.get('DB_PORT', '5432')} "
-        f"dbname={os.environ.get('DB_NAME', 'stockai')} "
-        f"user={os.environ.get('DB_USER', 'postgres')} "
-        f"password={os.environ.get('DB_PASSWORD', 'stockai2025')}"
+        # Parse Neon URL into components — avoids sslmode/channel_binding issues
+        from urllib.parse import urlparse, parse_qs
+        parsed = urlparse(url)
+        return psycopg2.connect(
+            host=parsed.hostname,
+            port=parsed.port or 5432,
+            dbname=parsed.path.lstrip('/'),
+            user=parsed.username,
+            password=parsed.password,
+            sslmode='require',
+        )
+    # Local Docker fallback
+    return psycopg2.connect(
+        host=os.environ.get('DB_HOST', 'localhost'),
+        port=int(os.environ.get('DB_PORT', 5432)),
+        dbname=os.environ.get('DB_NAME', 'stockai'),
+        user=os.environ.get('DB_USER', 'postgres'),
+        password=os.environ.get('DB_PASSWORD', 'stockai2025'),
     )
-
-def get_conn():
-    return psycopg2.connect(_get_dsn())
 
 def wait_for_db(retries=15, delay=2):
     import time
