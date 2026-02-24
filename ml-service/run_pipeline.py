@@ -1,9 +1,7 @@
 """
-Standalone ML pipeline — run by GitHub Actions daily.
-1. Connect to Neon DB
-2. Fetch latest stock prices via yfinance
-3. Train XGBoost models
-4. Store predictions in Neon DB
+ML Pipeline — two modes:
+- First run (locally): backfill with yfinance + train models
+- Daily (GitHub Actions): update with Finnhub quotes + retrain
 """
 
 from db import wait_for_db, init_tables, get_row_count
@@ -21,15 +19,27 @@ def main():
 
     rows = get_row_count()
     if rows < 100:
-        print(f'[pipeline] Only {rows} rows — doing full backfill...')
-        backfill()
+        # First run — try yfinance backfill (works locally)
+        try:
+            print(f'[pipeline] Only {rows} rows — backfilling with yfinance...')
+            backfill()
+        except ImportError:
+            print('[pipeline] yfinance not available — using Finnhub quotes instead')
+            fetch_latest()
+        except Exception as e:
+            print(f'[pipeline] yfinance failed ({e}) — using Finnhub quotes')
+            fetch_latest()
     else:
-        print(f'[pipeline] DB has {rows} rows — fetching latest...')
+        print(f'[pipeline] DB has {rows} rows — fetching latest via Finnhub...')
         fetch_latest()
 
-    print('[pipeline] Running XGBoost predictions...')
-    results = run_predictions()
-    print(f'[pipeline] Done. {len(results)} predictions stored in DB.')
+    rows_after = get_row_count()
+    if rows_after > 100:
+        print('[pipeline] Running XGBoost predictions...')
+        results = run_predictions()
+        print(f'[pipeline] Done. {len(results)} predictions stored.')
+    else:
+        print(f'[pipeline] Only {rows_after} rows — need at least 100 for ML. Run backfill locally first.')
 
 if __name__ == '__main__':
     main()

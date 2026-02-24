@@ -4,7 +4,7 @@ const FINNHUB = 'https://finnhub.io/api/v1';
 // ML Service URL — change this after deploying to Railway
 // Local: 'http://localhost:8000'
 // Railway: 'https://your-app-name.up.railway.app'
-export const ML_URL = 'http://localhost:8000';
+export const ML_URL = 'https://stockai-api-vc1z.onrender.com';
 
 export async function getAllUSStocks() {
   const res = await fetch(`${FINNHUB}/stock/symbol?exchange=US&token=${FINNHUB_KEY}`);
