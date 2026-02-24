@@ -1,38 +1,89 @@
-"""MySQL database layer for StockAI."""
+"""PostgreSQL database layer — works with Neon DB (free) or local Docker."""
 
-import mysql.connector
+import psycopg2
+import psycopg2.extras
 import json
+import os
 
-DB_CONFIG = {
-    'host': 'localhost',
-    'port': 3306,
-    'database': 'stockai',
-    'user': 'root',
-    'password': 'stockai2025',
-}
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
+def _get_dsn():
+    """Build connection string. Neon gives you a full DATABASE_URL, or use individual vars."""
+    # Neon provides a single URL like: postgresql://user:pass@host/dbname?sslmode=require
+    url = os.environ.get('DATABASE_URL')
+    if url:
+        # Strip channel_binding param — psycopg2 doesn't support it
+        url = url.replace('&channel_binding=require', '').replace('?channel_binding=require&', '?')
+        return url
+    # Fallback to individual vars (local Docker)
+    return (
+        f"host={os.environ.get('DB_HOST', 'localhost')} "
+        f"port={os.environ.get('DB_PORT', '5432')} "
+        f"dbname={os.environ.get('DB_NAME', 'stockai')} "
+        f"user={os.environ.get('DB_USER', 'postgres')} "
+        f"password={os.environ.get('DB_PASSWORD', 'stockai2025')}"
+    )
 
 def get_conn():
-    return mysql.connector.connect(**DB_CONFIG)
+    return psycopg2.connect(_get_dsn())
 
-
-def wait_for_db(retries=30, delay=2):
-    """Wait for MySQL to be ready (used on startup)."""
+def wait_for_db(retries=15, delay=2):
     import time
     for i in range(retries):
         try:
             conn = get_conn()
             conn.close()
-            print('[db] MySQL connected')
+            print('[db] PostgreSQL connected')
             return True
         except Exception as e:
             if i < retries - 1:
-                print(f'[db] Waiting for MySQL... ({i+1}/{retries})')
+                print(f'[db] Waiting for DB... ({i+1}/{retries})')
                 time.sleep(delay)
             else:
-                print(f'[db] MySQL not ready after {retries} attempts: {e}')
+                print(f'[db] DB not ready: {e}')
                 return False
 
+def init_tables():
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS daily_prices (
+            id SERIAL PRIMARY KEY,
+            symbol VARCHAR(10) NOT NULL,
+            date DATE NOT NULL,
+            open_price DECIMAL(12,4),
+            high_price DECIMAL(12,4),
+            low_price DECIMAL(12,4),
+            close_price DECIMAL(12,4),
+            volume BIGINT,
+            created_at TIMESTAMP DEFAULT NOW(),
+            UNIQUE(symbol, date)
+        )
+    ''')
+    cur.execute('CREATE INDEX IF NOT EXISTS idx_dp_sym ON daily_prices(symbol)')
+    cur.execute('CREATE INDEX IF NOT EXISTS idx_dp_date ON daily_prices(date DESC)')
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS predictions (
+            id SERIAL PRIMARY KEY,
+            symbol VARCHAR(10) NOT NULL,
+            date DATE NOT NULL,
+            prediction VARCHAR(20) NOT NULL,
+            probability DECIMAL(6,4),
+            confidence DECIMAL(6,4),
+            signals JSONB,
+            created_at TIMESTAMP DEFAULT NOW(),
+            UNIQUE(symbol, date)
+        )
+    ''')
+    cur.execute('CREATE INDEX IF NOT EXISTS idx_pred_sym ON predictions(symbol)')
+    conn.commit()
+    cur.close()
+    conn.close()
+    print('[db] Tables ready')
 
 def insert_daily_prices(rows):
     conn = get_conn()
@@ -41,42 +92,29 @@ def insert_daily_prices(rows):
     for r in rows:
         try:
             cur.execute(
-                '''INSERT IGNORE INTO daily_prices (symbol, date, open_price, high_price, low_price, close_price, volume)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s)''',
+                '''INSERT INTO daily_prices (symbol, date, open_price, high_price, low_price, close_price, volume)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s)
+                   ON CONFLICT (symbol, date) DO NOTHING''',
                 (r['symbol'], r['date'], r['open'], r['high'], r['low'], r['close'], r['volume'])
             )
             inserted += 1
-        except:
-            pass
+        except: pass
     conn.commit()
     cur.close()
     conn.close()
     return inserted
 
-
 def get_price_history(symbol, days=252):
     conn = get_conn()
-    cur = conn.cursor(dictionary=True)
-    cur.execute(
-        'SELECT * FROM daily_prices WHERE symbol = %s ORDER BY date DESC LIMIT %s',
-        (symbol, days)
-    )
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute('SELECT * FROM daily_prices WHERE symbol = %s ORDER BY date DESC LIMIT %s', (symbol, days))
     rows = cur.fetchall()
     cur.close()
     conn.close()
-    result = []
-    for r in reversed(rows):
-        result.append({
-            'symbol': r['symbol'],
-            'date': str(r['date']),
-            'open': float(r['open_price'] or 0),
-            'high': float(r['high_price'] or 0),
-            'low': float(r['low_price'] or 0),
-            'close': float(r['close_price'] or 0),
-            'volume': int(r['volume'] or 0),
-        })
-    return result
-
+    return [{'symbol': r['symbol'], 'date': str(r['date']),
+             'open': float(r['open_price'] or 0), 'high': float(r['high_price'] or 0),
+             'low': float(r['low_price'] or 0), 'close': float(r['close_price'] or 0),
+             'volume': int(r['volume'] or 0)} for r in reversed(rows)]
 
 def get_all_symbols():
     conn = get_conn()
@@ -87,7 +125,6 @@ def get_all_symbols():
     conn.close()
     return symbols
 
-
 def get_latest_date():
     conn = get_conn()
     cur = conn.cursor()
@@ -96,7 +133,6 @@ def get_latest_date():
     cur.close()
     conn.close()
     return str(row[0]) if row and row[0] else None
-
 
 def get_row_count():
     conn = get_conn()
@@ -107,7 +143,6 @@ def get_row_count():
     conn.close()
     return count
 
-
 def save_prediction(symbol, date, prediction, probability, confidence, signals):
     conn = get_conn()
     cur = conn.cursor()
@@ -115,61 +150,39 @@ def save_prediction(symbol, date, prediction, probability, confidence, signals):
     cur.execute(
         '''INSERT INTO predictions (symbol, date, prediction, probability, confidence, signals)
            VALUES (%s, %s, %s, %s, %s, %s)
-           ON DUPLICATE KEY UPDATE
-           prediction = VALUES(prediction), probability = VALUES(probability),
-           confidence = VALUES(confidence), signals = VALUES(signals)''',
+           ON CONFLICT (symbol, date) DO UPDATE
+           SET prediction = EXCLUDED.prediction, probability = EXCLUDED.probability,
+               confidence = EXCLUDED.confidence, signals = EXCLUDED.signals''',
         (symbol, date, prediction, probability, confidence, signals_json)
     )
     conn.commit()
     cur.close()
     conn.close()
 
-
-def _get_latest_price(conn, symbol):
-    cur = conn.cursor()
-    cur.execute(
-        'SELECT close_price FROM daily_prices WHERE symbol = %s ORDER BY date DESC LIMIT 1',
-        (symbol,)
-    )
-    row = cur.fetchone()
-    cur.close()
-    return float(row[0]) if row and row[0] else None
-
-
 def get_predictions(symbols=None):
     conn = get_conn()
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     if symbols:
-        placeholders = ','.join(['%s'] * len(symbols))
         cur.execute(
-            f'''SELECT * FROM predictions WHERE symbol IN ({placeholders})
-                AND date = (SELECT MAX(date) FROM predictions)
-                ORDER BY confidence DESC''',
-            tuple(symbols)
-        )
+            '''SELECT * FROM predictions WHERE symbol = ANY(%s)
+               AND date = (SELECT MAX(date) FROM predictions)
+               ORDER BY confidence DESC''', (symbols,))
     else:
         cur.execute(
             '''SELECT * FROM predictions
                WHERE date = (SELECT MAX(date) FROM predictions)
-               ORDER BY confidence DESC'''
-        )
+               ORDER BY confidence DESC''')
     rows = cur.fetchall()
     cur.close()
-
+    conn.close()
     result = []
     for r in rows:
         item = dict(r)
         item['date'] = str(item['date'])
         item['probability'] = float(item['probability'] or 0)
         item['confidence'] = float(item['confidence'] or 0)
-        price = _get_latest_price(conn, item['symbol'])
-        if price is not None:
-            item['price'] = round(price, 2)
         if isinstance(item['signals'], str):
-            try:
-                item['signals'] = json.loads(item['signals'])
-            except:
-                item['signals'] = []
+            try: item['signals'] = json.loads(item['signals'])
+            except: item['signals'] = []
         result.append(item)
-    conn.close()
     return result

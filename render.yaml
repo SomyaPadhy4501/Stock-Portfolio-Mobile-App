@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: stockai-api
+    runtime: docker
+    rootDir: ml-service
+    plan: free
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: PORT
+        value: 8000
+    healthCheckPath: /health

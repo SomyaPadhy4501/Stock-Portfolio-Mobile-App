@@ -6,4 +6,5 @@ scikit-learn==1.5.1
 pandas==2.2.2
 numpy==1.26.4
 apscheduler==3.10.4
-mysql-connector-python==9.0.0
+psycopg2-binary==2.9.9
+python-dotenv==1.0.1

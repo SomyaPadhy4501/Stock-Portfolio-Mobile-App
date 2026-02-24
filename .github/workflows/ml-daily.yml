@@ -1,0 +1,38 @@
+# Runs daily at 9 PM ET (1 AM UTC) — after US market closes
+# Also runnable manually from GitHub Actions tab
+# Free: GitHub gives 2000 min/month, this uses ~5 min/day = 150 min/month
+
+name: Daily ML Pipeline
+
+on:
+  schedule:
+    - cron: '0 1 * * 1-5'  # Mon-Fri at 1 AM UTC (9 PM ET)
+  workflow_dispatch:  # manual trigger button
+
+jobs:
+  ml-pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: ml-service/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          cd ml-service
+          pip install -r requirements.txt
+
+      - name: Run ML Pipeline
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          cd ml-service
+          python run_pipeline.py

@@ -5,8 +5,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '../context/AppContext';
-
-const ML = 'http://localhost:8000';
+import { ML_URL as ML } from '../api';
 
 const REC = {
   strong_buy: { label: 'STRONG BUY', color: '#34C759', icon: 'arrow-up-circle' },

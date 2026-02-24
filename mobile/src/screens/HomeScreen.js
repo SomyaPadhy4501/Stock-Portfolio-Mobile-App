@@ -7,10 +7,9 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Path, Circle, Rect, Text as SvgText } from 'react-native-svg';
 import { useApp } from '../context/AppContext';
-import { getQuote } from '../api';
+import { getQuote, ML_URL as ML } from '../api';
 
 const W = Dimensions.get('window').width;
-const ML = 'http://localhost:8000';
 
 const REC = {
   strong_buy: { label: 'STRONG BUY', color: '#34C759', icon: 'arrow-up-circle' },

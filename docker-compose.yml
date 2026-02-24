@@ -1,42 +1,18 @@
-services:
-  mysql:
-    image: mysql:8.0
-    container_name: stockai_mysql
-    restart: unless-stopped
-    environment:
-      MYSQL_ROOT_PASSWORD: stockai2025
-      MYSQL_DATABASE: stockai
-    ports:
-      - "3306:3306"
-    volumes:
-      - mysqldata:/var/lib/mysql
-      - ./ml-service/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
-    command: --default-authentication-plugin=mysql_native_password
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-pstockai2025"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
+version: '3.8'
 
+services:
   postgres:
     image: postgres:16-alpine
-    container_name: stockai_postgres
+    container_name: stockai_db
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ai_stock_portfolio
+      POSTGRES_DB: stockai
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: stockapp2025
+      POSTGRES_PASSWORD: stockai2025
     ports:
       - "5432:5432"
     volumes:
-      - postgresdata:/var/lib/postgresql/data
-      - ./backend/src/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+      - pgdata:/var/lib/postgresql/data
 
 volumes:
-  mysqldata:
-  postgresdata:
+  pgdata:
